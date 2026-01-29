@@ -98,16 +98,25 @@ class EquipementDAO:
 
     @staticmethod
     def insert(nom: str, type_eq: str, marque: str, modele: str,
-               numero_serie: str, date_acquisition: str, localisation: str) -> int:
+               numero_serie: str, date_acquisition: str, localisation: str, heures_utilisation: int = 0) -> int:
         """Insère un nouvel équipement (Niveau 1: INSERT)."""
         with get_db_cursor() as cursor:
             cursor.execute(
                 """INSERT INTO equipements
-                   (nom, type, marque, modele, numero_serie, date_acquisition, localisation)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (nom, type_eq, marque, modele, numero_serie, date_acquisition, localisation)
+                   (nom, type, marque, modele, numero_serie, date_acquisition, localisation, heures_utilisation)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (nom, type_eq, marque, modele, numero_serie, date_acquisition, localisation, heures_utilisation)
             )
             return cursor.lastrowid
+
+    @staticmethod
+    def update_heures(equipement_id: int, heures: int):
+        """Met à jour le nombre d'heures d'utilisation d'un équipement."""
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                "UPDATE equipements SET heures_utilisation = ? WHERE id = ?",
+                (heures, equipement_id)
+            )
 
     @staticmethod
     def update_statut(equipement_id: int, nouveau_statut: str):
@@ -440,4 +449,113 @@ class IndicateursDAO:
                 WHERE i.statut = 'terminee'
                 ORDER BY i.date_intervention
             """)
+            return [dict(row) for row in cursor.fetchall()]
+
+
+# =============================================================================
+# NOUVEAUX MODULES (Users, Stocks, Filtres)
+# =============================================================================
+
+class UserDAO:
+    """Gestion des utilisateurs."""
+
+    @staticmethod
+    def get_by_username(username: str) -> Optional[Dict]:
+        with get_db_cursor() as cursor:
+            cursor.execute("SELECT * FROM utilisateurs WHERE username = ?", (username,))
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+class PieceDAO:
+    """Gestion des pièces détachées."""
+
+    @staticmethod
+    def get_all() -> List[Dict]:
+        with get_db_cursor() as cursor:
+            cursor.execute("SELECT * FROM pieces_detachees ORDER BY nom")
+            return [dict(row) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_alertes_stock() -> List[Dict]:
+        with get_db_cursor() as cursor:
+            cursor.execute("SELECT * FROM pieces_detachees WHERE quantite_stock <= seuil_alerte")
+            return [dict(row) for row in cursor.fetchall()]
+            
+    @staticmethod
+    def update_stock(piece_id: int, quantite_change: int):
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                "UPDATE pieces_detachees SET quantite_stock = quantite_stock + ? WHERE id = ?",
+                (quantite_change, piece_id)
+            )
+
+    @staticmethod
+    def insert(nom: str, reference: str, quantite: int, seuil: int, cout: float):
+        with get_db_cursor() as cursor:
+            cursor.execute(
+                """INSERT INTO pieces_detachees (nom, reference, quantite_stock, seuil_alerte, cout_unitaire)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (nom, reference, quantite, seuil, cout)
+            )
+
+class PieceUtiliseeDAO:
+    """Gestion des pièces utilisées dans les interventions."""
+    
+    @staticmethod
+    def add_piece_to_intervention(intervention_id: int, piece_id: int, quantite: int):
+        with get_db_cursor() as cursor:
+            # 1. Enregistrer l'utilisation
+            cursor.execute(
+                "INSERT INTO pieces_utilisees (intervention_id, piece_id, quantite) VALUES (?, ?, ?)",
+                (intervention_id, piece_id, quantite)
+            )
+            # 2. Décrémenter le stock
+            cursor.execute(
+                "UPDATE pieces_detachees SET quantite_stock = quantite_stock - ? WHERE id = ?",
+                (quantite, piece_id)
+            )
+
+    @staticmethod
+    def get_by_intervention(intervention_id: int) -> List[Dict]:
+        with get_db_cursor() as cursor:
+            cursor.execute("""
+                SELECT p.nom, p.reference, u.quantite, p.cout_unitaire
+                FROM pieces_utilisees u
+                JOIN pieces_detachees p ON u.piece_id = p.id
+                WHERE u.intervention_id = ?
+            """, (intervention_id,))
+            return [dict(row) for row in cursor.fetchall()]
+
+class InterventionFiltreDAO:
+    """Recherche avancée d'interventions."""
+    
+    @staticmethod
+    def search(technicien_id: int = None, type_inter: str = None, 
+               date_debut: str = None, date_fin: str = None) -> List[Dict]:
+        query = """
+            SELECT i.*, e.nom as equipement_nom, t.nom as technicien_nom, t.prenom as technicien_prenom
+            FROM interventions i
+            JOIN equipements e ON i.equipement_id = e.id
+            JOIN techniciens t ON i.technicien_id = t.id
+            WHERE 1=1
+        """
+        params = []
+        
+        if technicien_id:
+            query += " AND i.technicien_id = ?"
+            params.append(technicien_id)
+        if type_inter:
+            query += " AND i.type_intervention = ?"
+            params.append(type_inter)
+        if date_debut:
+            query += " AND i.date_intervention >= ?"
+            params.append(date_debut)
+        if date_fin:
+            query += " AND i.date_intervention <= ?"
+            params.append(date_fin)
+            
+        query += " ORDER BY i.date_intervention DESC"
+        
+        with get_db_cursor() as cursor:
+            cursor.execute(query, params)
             return [dict(row) for row in cursor.fetchall()]

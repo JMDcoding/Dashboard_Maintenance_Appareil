@@ -13,9 +13,28 @@ sys.path.insert(0, str(Path(__file__).parent))
 from db_connection import init_database, database_exists, DatabaseConnection
 from data_access import (
     TechnicienDAO, EquipementDAO, InterventionDAO,
-    StatistiquesDAO, IndicateursDAO
+    StatistiquesDAO, IndicateursDAO,
+    UserDAO, PieceDAO, InterventionFiltreDAO
 )
-from business_logic import MaintenanceService
+from business_logic import MaintenanceService, AuthService, StockService, ExportService
+
+
+class LoginDialog(simpledialog.Dialog):
+    def body(self, master):
+        tk.Label(master, text="Nom d'utilisateur:").grid(row=0, pady=5)
+        tk.Label(master, text="Mot de passe:").grid(row=1, pady=5)
+
+        self.e1 = tk.Entry(master)
+        self.e2 = tk.Entry(master, show="*")
+
+        self.e1.grid(row=0, column=1, padx=5)
+        self.e2.grid(row=1, column=1, padx=5)
+        return self.e1
+
+    def apply(self):
+        username = self.e1.get()
+        password = self.e2.get()
+        self.result = AuthService.login(username, password)
 
 
 class MaintenanceApp:
@@ -39,12 +58,35 @@ class MaintenanceApp:
 
         # Initialiser la base de donnees
         self._init_database()
+        
+        # Authentification
+        self.current_user = None
+        self._authenticate()
+        
+        if not self.current_user:
+            # L'utilisateur a annule ou echoue
+            # On laisse root.mainloop se terminer (via destroy dans main si besoin, ou ici)
+            # Mais ici on est dans __init__, donc self.root existe.
+            # On ne peut pas facilement detruire root ici sans erreur.
+            # On va juste ne pas creer les widgets.
+            return
 
         # Creer l'interface
         self._create_widgets()
 
         # Afficher le message de bienvenue
         self._show_welcome()
+
+    def _authenticate(self):
+        """Lance la boite de dialogue de connexion."""
+        # On va reessayer tant que pas connecte ou annule
+        while not self.current_user:
+            d = LoginDialog(self.root, title="Connexion Maintenance")
+            if d.result:
+                self.current_user = d.result
+                messagebox.showinfo("Connexion reussie", f"Bienvenue {self.current_user['username']} ({self.current_user['role']})")
+            else:
+                break
 
     def _init_database(self):
         """Initialise la base de donnees si necessaire."""
@@ -105,9 +147,17 @@ class MaintenanceApp:
             ("Interventions/mois", self.show_interventions_mois),
             ("Performance techniciens", self.show_performance_techniciens),
             ("Historique equipement", self.show_historique_equipement),
+            ("Recherche avancee", self.show_recherche_avancee),  # NEW
+            ("Gestion Stocks", self.show_gestion_stocks),        # NEW
             ("Rapport complet", self.show_rapport_synthese),
         ]
 
+        # Filtrage selon role (exemple simple)
+        if self.current_user['role'] == 'technicien':
+            # Technicien voit moins de rapports financiers
+            items_to_remove = ["Cout par equipement", "Tendance des couts", "Performance techniciens", "Rapport complet"]
+            menu_items = [item for item in menu_items if item[0] not in items_to_remove]
+              
         for text, command in menu_items:
             btn = tk.Button(
                 self.sidebar,
@@ -535,6 +585,66 @@ class MaintenanceApp:
         else:
             self._append_text("    Aucune alerte critique\n")
 
+        self._finalize_text()
+
+    def show_gestion_stocks(self):
+        """Affiche l'état des stocks et les alertes."""
+        self._clear_and_set_title("Gestion des Stocks")
+        
+        # 1. Alertes
+        msgs = StockService.get_alertes_stock_message()
+        if msgs:
+            self._append_text("\n  ALERTES RUPTURE DE STOCK\n")
+            self._append_text("  !!!!!!!!!!!!!!!\n")
+            for m in msgs:
+                self._append_text(f"  {m}\n")
+            self._append_text("  !!!!!!!!!!!!!!!\n\n")
+            
+        # 2. Tableau complet
+        pieces, _ = StockService.get_stock_status()
+        if pieces:
+            headers = ["Nom", "Référence", "Stock", "Seuil", "Prix Unit."]
+            rows = [
+                (p['nom'], p['reference'], p['quantite_stock'], 
+                 p['seuil_alerte'], f"{p['cout_unitaire']:.2f} €")
+                for p in pieces
+            ]
+            self._append_text(self._format_table(headers, rows, [25, 15, 8, 8, 12]))
+        else:
+            self._append_text("  Aucune pièce enregistrée.\n")
+            
+        self._finalize_text()
+
+    def show_recherche_avancee(self):
+        """Recherche multicritère et Export."""
+        self._clear_and_set_title("Recherche Avancée & Export")
+        
+        # Saisie simple des filtres via dialog
+        type_inter = simpledialog.askstring("Filtre", "Type intervention (laisser vide pour tout):", parent=self.root)
+        
+        # Recherche
+        resultats = InterventionFiltreDAO.search(type_inter=type_inter if type_inter else None)
+        
+        self._append_text(f"\n  Résultats trouvés: {len(resultats)}\n")
+        
+        if resultats:
+             # Tableau
+            headers = ["Date", "Type", "Equipement", "Technicien", "Coût"]
+            rows = [
+                (r['date_intervention'], r['type_intervention'][:10], 
+                 r['equipement_nom'][:15], r['technicien_nom'][:12],
+                 f"{r['cout']:.0f} €")
+                for r in resultats[:50] # Limit display
+            ]
+            self._append_text(self._format_table(headers, rows, [12, 12, 17, 14, 10]))
+            
+            # Export
+            if messagebox.askyesno("Export", "Exporter ces données en CSV ?"):
+                csv_content = ExportService.export_interventions_csv(resultats)
+                # En vrai on sauvegarderait dans un fichier, ici on affiche
+                self._append_text("\n\n  --- APERÇU EXPORT CSV ---\n")
+                self._append_text(csv_content)
+        
         self._finalize_text()
 
     def quit_app(self):

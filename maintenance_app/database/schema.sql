@@ -31,6 +31,7 @@ CREATE TABLE equipements (
     numero_serie TEXT UNIQUE NOT NULL,
     date_acquisition DATE NOT NULL,
     localisation TEXT NOT NULL,
+    heures_utilisation INTEGER DEFAULT 0,
     statut TEXT NOT NULL DEFAULT 'actif' CHECK (statut IN ('actif', 'en_panne', 'en_maintenance', 'reforme'))
 );
 
@@ -48,6 +49,46 @@ CREATE TABLE interventions (
     FOREIGN KEY (equipement_id) REFERENCES equipements(id) ON DELETE RESTRICT,
     FOREIGN KEY (technicien_id) REFERENCES techniciens(id) ON DELETE RESTRICT
 );
+
+-- Table des pieces detachees
+CREATE TABLE pieces_detachees (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nom TEXT NOT NULL,
+    reference TEXT UNIQUE NOT NULL,
+    quantite_stock INTEGER NOT NULL DEFAULT 0,
+    seuil_alerte INTEGER NOT NULL DEFAULT 5,
+    cout_unitaire REAL NOT NULL CHECK (cout_unitaire >= 0)
+);
+
+-- Table des pieces utilisees dans les interventions
+CREATE TABLE pieces_utilisees (
+    intervention_id INTEGER NOT NULL,
+    piece_id INTEGER NOT NULL,
+    quantite INTEGER NOT NULL CHECK (quantite > 0),
+    PRIMARY KEY (intervention_id, piece_id),
+    FOREIGN KEY (intervention_id) REFERENCES interventions(id) ON DELETE CASCADE,
+    FOREIGN KEY (piece_id) REFERENCES pieces_detachees(id) ON DELETE RESTRICT
+);
+
+-- Table des utilisateurs pour la gestion des acces
+CREATE TABLE utilisateurs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL CHECK (role IN ('admin', 'responsable', 'technicien')),
+    date_creation DATE DEFAULT CURRENT_DATE
+);
+
+-- Insertion d'utilisateurs de test
+INSERT OR IGNORE INTO utilisateurs (username, password_hash, role) VALUES 
+('admin', 'admin123', 'admin'),
+('resp', 'resp123', 'responsable'),
+-- Comptes pour chaque technicien existant (username = prenom.nom, mdp = prenom123)
+('jean.dupont', 'jean123', 'technicien'),
+('sophie.martin', 'sophie123', 'technicien'),
+('pierre.bernard', 'pierre123', 'technicien'),
+('marie.petit', 'marie123', 'technicien'),
+('thomas.leroy', 'thomas123', 'technicien');
 
 -- Index pour optimiser les requêtes fréquentes
 CREATE INDEX idx_interventions_equipement ON interventions(equipement_id);

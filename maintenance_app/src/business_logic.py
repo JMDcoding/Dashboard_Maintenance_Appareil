@@ -8,8 +8,11 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from data_access import (
     TechnicienDAO, EquipementDAO, InterventionDAO,
-    StatistiquesDAO, IndicateursDAO
+    StatistiquesDAO, IndicateursDAO,
+    UserDAO, PieceDAO, PieceUtiliseeDAO, InterventionFiltreDAO
 )
+import csv
+import io
 
 
 class MaintenanceService:
@@ -252,22 +255,56 @@ class MaintenanceService:
         INDICATEUR CALCULÉ CÔTÉ PYTHON
 
         Alertes basées sur:
+        - Heures d'utilisation élevées (> 2000h)
+        - Maintenance préventive programmée ou en retard
         - Équipements avec beaucoup de pannes récentes
         - Équipements sans maintenance depuis longtemps
         - Coûts anormalement élevés
         """
         equipements = EquipementDAO.get_all()
-        interventions = IndicateursDAO.get_all_interventions_raw()
+        interventions_terminees = IndicateursDAO.get_all_interventions_raw()
+        toutes_interventions = StatistiquesDAO.get_interventions_avec_details()
 
         alertes = []
         date_reference = datetime.now()
 
-        # Indexer les interventions par équipement
+        # --- 1. Alertes Maintenance Préventive Programmée ---
+        for inter in toutes_interventions:
+            if inter['type_intervention'] == 'preventive' and inter['statut'] == 'planifiee':
+                try:
+                    date_prevue = datetime.strptime(inter['date_intervention'], '%Y-%m-%d')
+                    jours_restants = (date_prevue - date_reference).days + 1  # +1 pour inclure aujourd'hui
+
+                    if 0 <= jours_restants <= 7:
+                        alertes.append({
+                            'equipement': inter['equipement_nom'],
+                            'niveau': 'INFO',
+                            'message': f"Maintenance préventive prévue le {inter['date_intervention']} (dans {jours_restants} jours)"
+                        })
+                    elif jours_restants < 0:
+                        alertes.append({
+                            'equipement': inter['equipement_nom'],
+                            'niveau': 'ATTENTION',
+                            'message': f"Maintenance préventive en retard de {abs(jours_restants)} jours (prévue le {inter['date_intervention']})"
+                        })
+                except ValueError:
+                    pass
+
+        # Indexer les interventions terminées par équipement pour les analyses historiques
         inter_par_eq = defaultdict(list)
-        for inter in interventions:
+        for inter in interventions_terminees:
             inter_par_eq[inter['equipement_id']].append(inter)
 
         for eq in equipements:
+            # --- 2. Alerte Heures d'Utilisation ---
+            heures = eq.get('heures_utilisation', 0)
+            if heures and heures > 2000:
+                alertes.append({
+                    'equipement': eq['nom'],
+                    'niveau': 'ATTENTION',
+                    'message': f"Utilisation élevée: {heures} heures (> 2000h)"
+                })
+
             eq_id = eq['id']
             inters = inter_par_eq.get(eq_id, [])
 
@@ -345,3 +382,50 @@ class MaintenanceService:
             'frequence_par_type': MaintenanceService.get_frequence_par_type(),
             'alertes': MaintenanceService.generer_alertes_maintenance()
         }
+
+
+class AuthService:
+    """Service d'authentification."""
+    
+    @staticmethod
+    def login(username, password):
+        user = UserDAO.get_by_username(username)
+        if user and user['password_hash'] == password: # WARNING: En prod, utiliser hashage
+            return user
+        return None
+
+class StockService:
+    """Service de gestion des stocks."""
+    
+    @staticmethod
+    def get_stock_status():
+        pieces = PieceDAO.get_all()
+        alertes = PieceDAO.get_alertes_stock()
+        return pieces, alertes
+
+    @staticmethod
+    def get_alertes_stock_message() -> List[str]:
+        alertes = PieceDAO.get_alertes_stock()
+        messages = []
+        for p in alertes:
+            messages.append(f"STOCK FAIBLE: {p['nom']} (Réf: {p['reference']}) - Reste: {p['quantite_stock']}")
+        return messages
+
+class ExportService:
+    """Service d'export de données."""
+    
+    @staticmethod
+    def export_interventions_csv(interventions: List[Dict]) -> str:
+        output = io.StringIO()
+        if not interventions:
+            return ""
+            
+        # Filtrer keys pour un CSV propre
+        fieldnames = ['id', 'date_intervention', 'type_intervention', 'description', 
+                      'duree_minutes', 'cout', 'equipement_nom', 'technicien_nom', 'statut']
+        
+        writer = csv.DictWriter(output, fieldnames=fieldnames, extrasaction='ignore')
+        writer.writeheader()
+        writer.writerows(interventions)
+        
+        return output.getvalue()

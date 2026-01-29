@@ -139,10 +139,10 @@ def database_exists() -> bool:
         with get_db_cursor() as cursor:
             cursor.execute("""
                 SELECT name FROM sqlite_master
-                WHERE type='table' AND name IN ('techniciens', 'equipements', 'interventions')
+                WHERE type='table' AND name IN ('techniciens', 'equipements', 'interventions', 'utilisateurs', 'pieces_detachees')
             """)
             tables = cursor.fetchall()
-            return len(tables) == 3
+            return len(tables) == 5
     except Exception:
         return False
 
