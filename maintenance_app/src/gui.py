@@ -148,6 +148,7 @@ class MaintenanceApp:
             ("Performance techniciens", self.show_performance_techniciens),
             ("Historique equipement", self.show_historique_equipement),
             ("Recherche avancee", self.show_recherche_avancee),  # NEW
+            ("Analyses Avancees KPI", self.show_kpi_avances),    # NEW
             ("Gestion Stocks", self.show_gestion_stocks),        # NEW
             ("Rapport complet", self.show_rapport_synthese),
         ]
@@ -585,6 +586,53 @@ class MaintenanceApp:
         else:
             self._append_text("    Aucune alerte critique\n")
 
+        self._finalize_text()
+
+    def show_kpi_avances(self):
+        """Affiche les KPIs avancés."""
+        self._clear_and_set_title("Analyses Avancées & KPIs")
+        
+        kpis = MaintenanceService.calculer_kpis_avances()
+        
+        # 1. MTBF
+        self._append_text("\n  FIABILITÉ & MTBF (Temps moyen entre pannes)\n")
+        self._append_text("  " + "-" * 50 + "\n")
+        mtbf = kpis['mtbf']
+        if mtbf:
+            for eq, jours in mtbf.items():
+                valeur = f"{jours} jours" if jours else "Données insuffisantes"
+                self._append_text(f"    {eq:30} : {valeur}\n")
+        else:
+            self._append_text("    Pas assez de données de pannes.\n")
+
+        # 2. Ratio Correctif / Préventif
+        self._append_text("\n  TYPES D'INTERVENTIONS\n")
+        self._append_text("  " + "-" * 50 + "\n")
+        cp = kpis['ratio_cp']
+        self._append_text(f"    Correctif (Pannes)  : {cp['correctif_pct']} %\n")
+        self._append_text(f"    Préventif (Entretien): {cp['preventif_pct']} %\n")
+        self._append_text(f"    Total Interventions : {cp['total_interventions']}\n")
+
+        # 3. Performance Techniciens
+        self._append_text("\n  EFFICACITÉ TECHNICIENS (Moyennes)\n")
+        self._append_text("  " + "-" * 50 + "\n")
+        headers = ["Technicien", "Interv.", "Durée Moy.", "Coût Moy."]
+        rows = [
+            (t['technicien'], t['nb'], f"{t['duree_moy']} min", f"{t['cout_moy']} €")
+            for t in kpis['techniciens']
+        ]
+        self._append_text(self._format_table(headers, rows, [20, 8, 12, 12]))
+        
+        # 4. Indicateurs Économiques
+        self._append_text("\n  INDICATEURS ÉCONOMIQUES & PRÉVISIONS\n")
+        self._append_text("  " + "-" * 50 + "\n")
+        self._append_text(f"    Coût par heure de fonctionnement : {kpis['cout_heure_moyen']} €/h\n")
+        self._append_text(f"    (Calculé sur l'ensemble du parc machines)\n\n")
+        
+        self._append_text(f"    Prévision Budget Maintenance (6 prochains mois) :\n")
+        self._append_text(f"    Estimation : {kpis['prevision_budget_6mois']:,.2f} €\n")
+        self._append_text(f"    (Basé sur historique récent + marge de sécurité 10%)\n")
+        
         self._finalize_text()
 
     def show_gestion_stocks(self):

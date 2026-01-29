@@ -360,6 +360,67 @@ class MaintenanceService:
 
         return alertes
 
+    @staticmethod
+    def calculer_kpis_avances() -> Dict:
+        """
+        Calcule les indicateurs avancés (KPIs).
+        """
+        # 1. Performance Techniciens (Efficacité)
+        perf_techs = IndicateursDAO.get_performance_techniciens()
+        techniciens_kpi = []
+        for p in perf_techs:
+            if p['nombre_interventions'] > 0:
+                # Efficacité = Valeur produite / Temps (Ex: Euro par minute)
+                # Ou Coût moyen par intervention
+                cout_moyen = p['valeur_interventions'] / p['nombre_interventions']
+                techniciens_kpi.append({
+                    'technicien': p['technicien'],
+                    'nb': p['nombre_interventions'],
+                    'duree_moy': round(p['temps_moyen'], 1),
+                    'cout_moy': round(cout_moyen, 2)
+                })
+
+        # 2. Ratio Correctif / Préventif
+        freq = IndicateursDAO.get_frequence_interventions_par_type()
+        total = sum(f['nombre'] for f in freq)
+        correctif = next((f['nombre'] for f in freq if f['type_intervention'] == 'corrective'), 0)
+        preventif = next((f['nombre'] for f in freq if f['type_intervention'] == 'preventive'), 0)
+        
+        ratio_cp = {
+            'correctif_pct': round((correctif / total * 100), 1) if total > 0 else 0,
+            'preventif_pct': round((preventif / total * 100), 1) if total > 0 else 0,
+            'total_interventions': total
+        }
+
+        # 3. Coût par heure de fonctionnement (Global)
+        equipements = EquipementDAO.get_all()
+        interventions = IndicateursDAO.get_all_interventions_raw()
+        
+        # Ce calcul est approximatif car 'heures_utilisation' est un snapshot actuel
+        # et le coût est historique.
+        total_heures = sum(e.get('heures_utilisation', 0) for e in equipements)
+        total_cout = sum(i['cout'] for i in interventions)
+        
+        cout_heure_moyen = round(total_cout / total_heures, 4) if total_heures > 0 else 0
+
+        # 4. Simulation Budget (Basé sur moyenne mensuelle historique)
+        # On regarde les 12 derniers mois
+        couts_mensuels = StatistiquesDAO.get_interventions_par_mois(2024) # TODO: Generaliser annee
+        if couts_mensuels:
+            moyenne_mensuelle = sum(c['cout_total'] for c in couts_mensuels) / len(couts_mensuels)
+        else:
+            moyenne_mensuelle = 0
+            
+        prevision_6_mois = round(moyenne_mensuelle * 6, 2) * 1.1 # Marge 10%
+
+        return {
+            'techniciens': techniciens_kpi,
+            'ratio_cp': ratio_cp,
+            'cout_heure_moyen': cout_heure_moyen,
+            'prevision_budget_6mois': prevision_6_mois,
+            'mtbf': MaintenanceService.calculer_mtbf()
+        }
+
     # =========================================================================
     # RAPPORTS COMPOSITES
     # =========================================================================
