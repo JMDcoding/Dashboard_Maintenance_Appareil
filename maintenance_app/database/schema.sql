@@ -3,9 +3,12 @@
 -- ============================================================================
 
 -- Suppression des tables existantes (ordre inverse des dépendances)
+DROP TABLE IF EXISTS pieces_utilisees;
 DROP TABLE IF EXISTS interventions;
 DROP TABLE IF EXISTS equipements;
 DROP TABLE IF EXISTS techniciens;
+DROP TABLE IF EXISTS pieces_detachees;
+DROP TABLE IF EXISTS utilisateurs;
 
 -- ============================================================================
 -- CREATION DES TABLES

@@ -213,6 +213,13 @@ class StatistiquesDAO:
             return round(result['moyenne'], 2) if result['moyenne'] else 0.0
 
     @staticmethod
+    def get_annees_disponibles() -> List[str]:
+        """Récupère les années disponibles dans les interventions."""
+        with get_db_cursor() as cursor:
+            cursor.execute("SELECT DISTINCT strftime('%Y', date_intervention) as annee FROM interventions ORDER BY annee DESC")
+            return [row['annee'] for row in cursor.fetchall() if row['annee']]
+
+    @staticmethod
     def get_interventions_avec_details() -> List[Dict]:
         """
         Récupère les interventions avec les détails des équipements et techniciens.

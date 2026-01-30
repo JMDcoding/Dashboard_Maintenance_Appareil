@@ -18,6 +18,14 @@ import io
 class MaintenanceService:
     """Service métier pour la gestion de la maintenance."""
 
+    @staticmethod
+    def get_annee_reference() -> int:
+        """Détermine l'année de référence (dernière année avec données ou année courante)."""
+        annees = StatistiquesDAO.get_annees_disponibles()
+        if annees:
+            return int(annees[0])
+        return datetime.now().year
+
     # =========================================================================
     # INDICATEURS SIMPLES (délégués au DAO)
     # =========================================================================
@@ -126,13 +134,16 @@ class MaintenanceService:
         return mtbf_resultats
 
     @staticmethod
-    def calculer_tendance_couts(annee: int = 2024) -> Dict[str, any]:
+    def calculer_tendance_couts(annee: int = None) -> Dict[str, any]:
         """
         Analyse la tendance des coûts de maintenance sur l'année.
         INDICATEUR CALCULÉ CÔTÉ PYTHON
 
         Retourne: tendance (hausse/baisse/stable), variation en %, détail par mois
         """
+        if annee is None:
+            annee = MaintenanceService.get_annee_reference()
+
         interventions = IndicateursDAO.get_all_interventions_raw()
 
         # Filtrer par année et grouper par mois
@@ -405,7 +416,8 @@ class MaintenanceService:
 
         # 4. Simulation Budget (Basé sur moyenne mensuelle historique)
         # On regarde les 12 derniers mois
-        couts_mensuels = StatistiquesDAO.get_interventions_par_mois(2024) # TODO: Generaliser annee
+        current_year = MaintenanceService.get_annee_reference()
+        couts_mensuels = IndicateursDAO.get_interventions_par_mois(current_year)
         if couts_mensuels:
             moyenne_mensuelle = sum(c['cout_total'] for c in couts_mensuels) / len(couts_mensuels)
         else:
